@@ -1,176 +1,121 @@
 import pandas as pd
-import numpy as np
 import yfinance as yf
 import requests
 import time
 import schedule
 import os
 from datetime import datetime, time as dt_time
-from dotenv import load_dotenv
 import logging
 
-# Cloud-optimized logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s',
-    handlers=[logging.StreamHandler()]
-)
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-print("🚀 ROSHI PROFESSIONAL SCANNER - 24/7 Cloud Deployment")
-load_dotenv()
+print("🚀 ROSHI SCANNER - Replit Cloud")
+print("✅ Free 24/7 Hosting | ⏰ Market Hours | 🔄 2-min Scans")
 
-class RoshiProfessionalScanner:
+class RoshiScanner:
     def __init__(self):
         self.brokerage = 40
         self.min_profit = 50
         
         self.strategies = {
-            'SCALPING': {'target': 0.8, 'sl': 0.4, 'hold': '5-15min', 'rr': 2.0},
-            'INTRADAY': {'target': 1.5, 'sl': 0.7, 'hold': '15min-EOD', 'rr': 2.1},
-            'SWING': {'target': 3.5, 'sl': 1.7, 'hold': '1-3 days', 'rr': 2.0},
-            'FUTURES': {'target': 2.8, 'sl': 1.3, 'hold': 'Intraday', 'rr': 2.1}
+            'SCALPING': {'target': 0.8, 'sl': 0.4, 'hold': '5-15min'},
+            'INTRADAY': {'target': 1.5, 'sl': 0.7, 'hold': '15min-EOD'},
+            'SWING': {'target': 3.5, 'sl': 1.7, 'hold': '1-3 days'}
         }
         
-        # Optimized stock list for cloud
+        # 15 key stocks for free tier
         self.stocks = {
             'NIFTY50': '^NSEI',
             'BANKNIFTY': '^NSEBANK',
             'RELIANCE': 'RELIANCE.NS', 'TCS': 'TCS.NS', 'HDFCBANK': 'HDFCBANK.NS',
             'ICICIBANK': 'ICICIBANK.NS', 'INFY': 'INFY.NS', 'BHARTIARTL': 'BHARTIARTL.NS',
-            'ITC': 'ITC.NS', 'SBIN': 'SBIN.NS', 'KOTAKBANK': 'KOTAKBANK.NS',
-            'AXISBANK': 'AXISBANK.NS', 'MARUTI': 'MARUTI.NS', 'TITAN': 'TITAN.NS',
-            'SUNPHARMA': 'SUNPHARMA.NS', 'TATAMOTORS': 'TATAMOTORS.NS'
+            'SBIN': 'SBIN.NS', 'KOTAKBANK': 'KOTAKBANK.NS', 'AXISBANK': 'AXISBANK.NS',
+            'MARUTI': 'MARUTI.NS', 'TITAN': 'TITAN.NS', 'ITC': 'ITC.NS'
         }
         
         self.sent_alerts = {}
-
-    def get_stock_data(self, symbol):
-        """Cloud-optimized data fetching"""
+    
+    def get_price(self, symbol):
         try:
-            data = yf.Ticker(symbol).history(period='2d', interval='15m')
-            return data
-        except Exception as e:
-            logger.error(f"Data error for {symbol}: {e}")
-            return pd.DataFrame()
-
-    def calculate_levels(self, data):
-        """Calculate technical levels"""
-        if data.empty or len(data) < 20:
+            stock = yf.Ticker(symbol)
+            data = stock.history(period='1d', interval='1m')
+            if not data.empty:
+                return data['Close'].iloc[-1]
             return None
-            
-        cp = data['Close'].iloc[-1]
-        support = data['Low'].tail(20).min()
-        resistance = data['High'].tail(20).max()
-        
-        avg_volume = data['Volume'].tail(20).mean()
-        current_volume = data['Volume'].iloc[-1]
-        volume_ratio = current_volume / avg_volume if avg_volume > 0 else 1
-        
-        ma_20 = data['Close'].tail(20).mean()
-        ma_50 = data['Close'].tail(50).mean()
-        trend = "BULLISH" if ma_20 > ma_50 else "BEARISH"
-        
-        return {
-            'price': cp, 'support': support, 'resistance': resistance,
-            'volume_ratio': volume_ratio, 'trend': trend
-        }
-
-    def generate_signals(self, stock_name, levels):
-        """Generate trading signals"""
-        if not levels: return []
-        
-        signals = []
-        cp = levels['price']
-        
-        # BREAKOUT STRATEGY
-        if (cp >= levels['resistance'] and 
-            levels['volume_ratio'] > 1.8 and
-            levels['trend'] == 'BULLISH'):
-            
-            target = cp * (1 + self.strategies['INTRADAY']['target']/100)
-            sl = cp * (1 - self.strategies['INTRADAY']['sl']/100)
-            
-            signals.append({
-                'style': 'INTRADAY', 'action': 'BUY', 'entry': cp,
-                'target': round(target, 2), 'sl': round(sl, 2),
-                'confidence': 'HIGH', 'setup': 'BREAKOUT',
-                'reason': f"Breakout ₹{levels['resistance']} | Volume {levels['volume_ratio']:.1f}x"
-            })
-
-        # SUPPORT STRATEGY
-        if (cp <= levels['support'] * 1.01 and 
-            levels['volume_ratio'] > 1.5 and
-            levels['trend'] == 'BULLISH'):
-            
-            target = cp * (1 + self.strategies['SWING']['target']/100)
-            sl = levels['support'] * 0.995
-            
-            signals.append({
-                'style': 'SWING', 'action': 'BUY', 'entry': cp,
-                'target': round(target, 2), 'sl': round(sl, 2),
-                'confidence': 'HIGH', 'setup': 'SUPPORT',
-                'reason': f"Support bounce ₹{levels['support']}"
-            })
-
-        return signals
-
-    def calculate_risk(self, signal):
-        """Risk management"""
-        if signal['action'] == 'BUY':
-            risk = signal['entry'] - signal['sl']
-            reward = signal['target'] - signal['entry']
-        else:
-            risk = signal['sl'] - signal['entry']
-            reward = signal['entry'] - signal['target']
-            
-        rr_ratio = reward / risk if risk > 0 else 0
-        profit = reward - self.brokerage
-        
-        risk_percent = (risk / signal['entry']) * 100
-        position = f"Risk: {risk_percent:.1f}% capital"
-        
-        return {
-            'rr_ratio': round(rr_ratio, 2),
-            'net_profit': profit,
-            'position': position,
-            'profitable': profit > 0
-        }
-
+        except Exception as e:
+            logger.error(f"Price error for {symbol}: {e}")
+            return None
+    
     def send_alert(self, message):
-        """Send Telegram alert"""
-        token = os.getenv('TELEGRAM_BOT_TOKEN')
-        chat_id = os.getenv('TELEGRAM_CHAT_ID')
-        if not token or not chat_id: 
+        # Works on Replit (secrets) and local (.env)
+        token = os.environ.get('TELEGRAM_BOT_TOKEN')
+        chat_id = os.environ.get('TELEGRAM_CHAT_ID')
+        
+        if not token or not chat_id:
             logger.error("❌ Missing Telegram credentials")
             return False
         
         url = f"https://api.telegram.org/bot{token}/sendMessage"
         try:
             response = requests.post(url, data={
-                'chat_id': chat_id, 'text': message, 'parse_mode': 'HTML'
+                'chat_id': chat_id,
+                'text': message,
+                'parse_mode': 'HTML'
             }, timeout=10)
-            return response.status_code == 200
+            if response.status_code == 200:
+                logger.info("✅ Alert sent to Telegram")
+                return True
+            return False
         except Exception as e:
             logger.error(f"❌ Telegram error: {e}")
             return False
-
-    def format_alert(self, stock, signal, metrics):
-        """Format professional alert"""
-        action_emoji = "🟢" if signal['action'] == 'BUY' else "🔴"
+    
+    def scan_single_stock(self, stock_name, stock_code):
+        price = self.get_price(stock_code)
+        if not price:
+            return None
         
-        message = f"""
-{action_emoji} <b>ROSHI CLOUD SIGNAL</b> {action_emoji}
+        # Simple breakout strategy
+        try:
+            stock = yf.Ticker(stock_code)
+            hist = stock.history(period='2d')
+            if len(hist) < 2:
+                return None
+            
+            prev_close = hist['Close'].iloc[0]
+            current_price = hist['Close'].iloc[-1]
+            
+            # Buy if price increased 0.3% from previous close
+            if current_price >= prev_close * 1.003:
+                target = current_price * 1.015  # 1.5% target
+                sl = current_price * 0.99       # 1% stop loss
+                profit = (target - current_price) - self.brokerage
+                
+                if profit > self.min_profit:
+                    return {
+                        'action': 'BUY',
+                        'entry': round(current_price, 2),
+                        'target': round(target, 2),
+                        'sl': round(sl, 2),
+                        'profit': round(profit, 2),
+                        'reason': 'Breakout momentum'
+                    }
+        except Exception as e:
+            logger.error(f"Strategy error for {stock_name}: {e}")
+        
+        return None
+    
+    def format_alert(self, stock, signal):
+        return f"""
+🟢 <b>ROSHI SIGNAL - REPLIT CLOUD</b> 🟢
 
-<b>{stock}</b> | {signal['style']} | {signal['setup']}
+<b>{stock}</b> | INTRADAY | BREAKOUT
 <b>Entry:</b> ₹{signal['entry']}
-<b>Target:</b> ₹{signal['target']} 
+<b>Target:</b> ₹{signal['target']}
 <b>Stop Loss:</b> ₹{signal['sl']}
 
-<b>Risk-Reward:</b> 1:{metrics['rr_ratio']}
-<b>Position:</b> {metrics['position']}
-<b>Confidence:</b> {signal['confidence']}
-
+<b>Expected Profit:</b> ₹{signal['profit']} (after brokerage)
 <b>Strategy:</b> {signal['reason']}
 
 <b>Strategy by Roshin</b>
@@ -178,10 +123,8 @@ class RoshiProfessionalScanner:
 
 <b>Time:</b> {datetime.now().strftime('%H:%M:%S')}
 """
-        return message
-
+    
     def is_market_open(self):
-        """Check market hours"""
         now = datetime.now()
         current_time = now.time()
         current_day = now.weekday()
@@ -190,85 +133,76 @@ class RoshiProfessionalScanner:
         market_end = dt_time(15, 30)
         
         return (current_day < 5 and market_start <= current_time <= market_end)
-
+    
     def scan_market(self):
-        """Market scanning with cloud optimization"""
         if not self.is_market_open():
-            logger.info("⏳ Market closed - Cloud scanner active")
+            logger.info("⏳ Market closed - Scanner active")
             return
             
-        logger.info(f"🔍 ROSHI CLOUD SCAN - {datetime.now().strftime('%H:%M:%S')}")
+        logger.info(f"🔍 ROSHI SCAN - {datetime.now().strftime('%H:%M:%S')}")
         
+        signals_found = 0
         for stock, code in self.stocks.items():
             try:
-                data = self.get_stock_data(code)
-                if data.empty: continue
-                    
-                levels = self.calculate_levels(data)
-                if not levels: continue
-                    
-                signals = self.generate_signals(stock, levels)
-                
-                for signal in signals:
-                    metrics = self.calculate_risk(signal)
-                    
-                    if metrics['rr_ratio'] >= 1.8 and metrics['profitable']:
-                        alert_key = f"{stock}_{signal['style']}"
-                        if alert_key in self.sent_alerts:
-                            if (datetime.now() - self.sent_alerts[alert_key]).seconds < 1800:
-                                continue
-                                
-                        message = self.format_alert(stock, signal, metrics)
+                signal = self.scan_single_stock(stock, code)
+                if signal:
+                    alert_key = f"{stock}_{signal['entry']}"
+                    if alert_key not in self.sent_alerts:
+                        message = self.format_alert(stock, signal)
                         if self.send_alert(message):
-                            self.sent_alerts[alert_key] = datetime.now()
-                            logger.info(f"✅ {stock} - {signal['style']}")
+                            self.sent_alerts[alert_key] = True
+                            signals_found += 1
+                            logger.info(f"✅ Signal for {stock} at ₹{signal['entry']}")
                 
-                time.sleep(0.5)
+                time.sleep(1)  # Rate limiting
                 
             except Exception as e:
-                logger.error(f"❌ {stock}: {e}")
+                logger.error(f"❌ Scan error for {stock}: {e}")
                 continue
-
-    def start_cloud_scanner(self):
-        """Start 24/7 cloud scanner"""
-        logger.info("🚀 ROSHI 24/7 CLOUD SCANNER ACTIVATED")
-        logger.info("☁️  Running on Render Cloud")
-        logger.info("⏰ Market hours scanning | 🔄 2-minute intervals")
-        logger.info("📊 15+ Stocks & Indices")
         
-        # Cloud startup message
+        if signals_found > 0:
+            logger.info(f"🎯 Found {signals_found} signals")
+        else:
+            logger.info("✅ Scan complete - no signals")
+    
+    def start_replit(self):
+        logger.info("🚀 ROSHI Scanner Started on Replit Cloud")
+        logger.info("📊 15 Stocks & Indices")
+        logger.info("⏰ Market Hours | 🔄 2-min Scans")
+        
+        # Startup message
         startup_msg = """
-🚀 <b>ROSHI 24/7 CLOUD SCANNER ACTIVATED</b>
+🚀 <b>ROSHI SCANNER - REPLIT CLOUD</b>
 
-✅ <b>Now running 24/7 on Render Cloud</b>
+✅ <b>Now running 24/7 on Replit Cloud</b>
+✅ <b>Free hosting - No costs</b>
+✅ <b>15 Stocks & Indices</b>
 ✅ <b>Automatic market hours detection</b>
-✅ <b>15+ Stocks & Indices</b>
-✅ <b>Professional strategies</b>
-⏰ <b>Scan interval:</b> Every 2 minutes during market hours
+⏰ <b>Scan interval:</b> Every 2 minutes
 
 <b>Strategy by Roshin</b>
 ⚡ <b>Disclaimer:</b> Trading involves risk
 
-<i>Your scanner is now running 24/7 in the cloud! 🚀</i>
+<i>Your professional scanner is now live! 🚀</i>
 """
         self.send_alert(startup_msg)
         
-        # Schedule scans
+        # Schedule scans every 2 minutes
         schedule.every(2).minutes.do(self.scan_market)
         
         # Run first scan
         self.scan_market()
         
-        # Cloud-optimized continuous operation
-        logger.info("🔄 ROSHI Cloud Scanner running 24/7...")
+        # Keep alive forever
+        logger.info("🔄 ROSHI running 24/7 on Replit...")
         while True:
             try:
                 schedule.run_pending()
                 time.sleep(1)
             except Exception as e:
                 logger.error(f"❌ Scheduler error: {e}")
-                time.sleep(60)  # Wait 1 minute and restart
+                time.sleep(60)
 
 if __name__ == "__main__":
-    scanner = RoshiProfessionalScanner()
-    scanner.start_cloud_scanner()
+    scanner = RoshiScanner()
+    scanner.start_replit()
